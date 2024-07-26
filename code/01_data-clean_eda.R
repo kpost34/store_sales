@@ -30,9 +30,10 @@ df_stores0 <- read_csv(here("data", "raw_data", "stores.csv"),
 df_transactions0 <- read_csv(here("data", "raw_data", "transactions.csv"),
                              col_types="Dci")
 
-#need to add col types: specifically changing doubles to chr and chr to fcts
+df_test0 <- read_csv(here("data", "raw_data", "test.csv"),
+                     col_types="cDcfd")
 
-# Initial Data Checking and Wrangling===============================================================
+# Initial Data Checking=============================================================================
 ## Dataframe Info
 df_train0
 #id = identifier
@@ -144,7 +145,7 @@ sum(vec_oil_miss) #43
 #linear interpolation--problematic b/c first value is NA
 library(zoo)
 
-df_oil0$dcoilwtico_imp <- na.approx(df_oil0$dcoilwtico)
+# df_oil0$dcoilwtico_imp <- na.approx(df_oil0$dcoilwtico)
 
 #spline interpolation
 df_oil0$dcoilwtico_spline <- na.spline(df_oil0$dcoilwtico)
@@ -195,6 +196,148 @@ df_oil0 %>%
   select(-date) %>%
   purrr::map(summary)
 #very similar...but mavg might be slightly closer to raw, so I'll select that method
+
+
+
+## Finalize imputation
+df_oil <- df_oil0 %>%
+  select(date, dcoilwtico_mavg)
+
+
+
+# Detect Outliers===================================================================================
+## Which datasets?
+df_holidays0 #no numerical vars
+df_stores0 #no numerical vars
+df_transactions0 #transactions
+df_train0 #sales, onpromotion
+
+
+## Create functions to calculate z-score and iqr
+#z-score
+calc_zscore <- function(dat, var, thresh) {
+  var_z_score <- rlang::englue("{{var}}_zscore")
+  
+  dat %>%
+    mutate("{{var}}_zscore" := ({{var}} - mean({{var}}, na.rm=TRUE)) / sd({{var}}, na.rm=TRUE),
+           "{{var}}_is_outlier" := abs(!!sym(var_z_score)) > thresh)
+}
+
+#iqr
+calc_iqr <- function(dat, var, thresh) {
+  var_q1 <- rlang::englue("{{var}}_q1")
+  var_q3 <- rlang::englue("{{var}}_q3")
+  var_iqr <- rlang::englue("{{var}}_iqr")
+  
+  dat %>%
+    mutate(!!sym(var_q1) := quantile({{var}}, 0.25, na.rm=TRUE),
+           !!sym(var_q3) := quantile({{var}}, 0.75, na.rm=TRUE),
+           "{{var}}_iqr" := !!sym(var_q3) - !!sym(var_q1),
+           "{{var}}_is_outlier" := ({{var}} < (!!sym(var_q1) - thresh * !!sym(var_iqr))) |
+                                ({{var}} > (!!sym(var_q3) + thresh * !!sym(var_iqr))))
+}
+
+
+## Assess statistically
+### Transcations: transactions
+df_transactions0 %>%
+  calc_zscore(transactions, 4) %>%
+  reframe(total=sum(transactions_is_outlier))
+#193...so not many
+
+
+### Train: sales
+# z-score
+df_train0 %>%
+  calc_zscore(sales, 3) %>% #typical threshold
+  reframe(total=sum(sales_is_outlier))
+#65,073 (~2.5%)
+
+
+df_train0 %>%
+  calc_zscore(sales, 4) %>% #higher threshold
+  reframe(total=sum(sales_is_outlier))
+  #39,611
+(39611/3000000)*100 #1.3%
+
+#iqr
+df_train0 %>%
+  calc_iqr(sales, 3) %>% #higher threshold
+  reframe(total=sum(sales_is_outlier))
+(323814/3000000)*100 #11%
+
+
+### Train: onpromotion
+df_train0 %>%
+  calc_zscore(onpromotion, 3) %>% #higher threshold
+  reframe(total=sum(onpromotion_is_outlier))
+  #34892, so around 1%
+
+
+
+
+
+## Assess visually
+### Transactions
+df_transactions0 %>%
+  ggplot() +
+  geom_point(aes(x=date, y=transactions), alpha=0.1) +
+  theme_bw()
+
+df_transactions0 %>%
+  ggplot(aes(x=transactions)) +
+  geom_histogram(color="black", fill="steelblue") +
+  theme_bw()
+#skewed, longish right tail
+
+df_transactions0 %>%
+  ggplot(aes(sample=transactions)) +
+  geom_qq() +
+  geom_qq_line() +
+  theme_bw()
+#highly non-normal
+
+
+### Train: sales
+df_train0 %>%
+  ggplot() +
+  geom_point(aes(x=date, y=sales), alpha=0.1) +
+  theme_bw()
+
+df_train0 %>%
+  ggplot(aes(x=sales)) +
+  geom_density() +
+  theme_bw()
+
+
+df_train0 %>%
+  ggplot(aes(x=sales)) +
+  geom_histogram(color="black", fill="steelblue") +
+  theme_bw()
+
+df_train0 %>%
+  ggplot(aes(sample=sales)) +
+  geom_qq() +
+  geom_qq_line() +
+  theme_bw()
+
+
+### Train: onpromotion
+df_train0 %>%
+  ggplot() +
+  geom_point(aes(x=date, y=onpromotion), alpha=0.1) +
+  theme_bw()
+
+df_train0 %>%
+  ggplot(aes(x=onpromotion)) +
+  geom_histogram(color="black", fill="steelblue") +
+  theme_bw()
+
+
+
+
+
+
 
 
 
