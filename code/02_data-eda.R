@@ -5,13 +5,13 @@
 # Load Packages, Functions, and Data================================================================
 #packages
 library(pacman) 
-pacman::p_load(here, tidyverse, janitor, skimr, visdat)
+pacman::p_load(here, tidyverse, janitor, skimr, rstatix)
 
 #functions
 source(here("code", "00_helper_fns.R"))
 
 #data
-source(here("code", "01_data-clean-impute.R"))
+source(here("code", "01_data-clean_impute.R"))
 
 
 

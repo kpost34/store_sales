@@ -238,6 +238,20 @@ df_oil_imp <- df_oil0 %>%
 
 
 
+# Data Hygiene======================================================================================
+obj_remove <- c("df_holidays_transfer", "df_holidays_transferred", "df_holidays0",
+                "df_oil_miss", "vec_oil_miss")
+
+rm(list=obj_remove)
+
+
+
+
+
+
+
+
+
 
 
 
