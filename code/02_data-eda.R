@@ -69,7 +69,7 @@ df_train0 %>%
 #323,814, 10.8%; much greater than zscore
 
 
-## Train: sales and onpromodtion--------------------
+## Train: sales and onpromotion--------------------
 ### Overall
 #hard-coded
 df_train0 %>%
