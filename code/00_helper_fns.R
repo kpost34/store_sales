@@ -38,5 +38,47 @@ calc_iqr <- function(dat, var, thresh) {
 
 
 
+# Feature Engineering===============================================================================
+## Function to apply data transformations for normality and to reduce outliers
+apply_transform <- function(dat, vars, fn) {
+  dat %>%
+    {if(fn=="yj") mutate(dat, 
+                         across(all_of(vars),
+                                ~ifelse(all(.x[!is.na(.x)]==0),
+                                        NA_real_,
+                                        .x[!is.na(.x)] %>% yeojohnson() %>% predict()), 
+                                .names="{.col}_yj")) else .} %>%
+    {if(fn=="qt") mutate(dat, 
+                         across(all_of(vars),
+                                ~ifelse(all(.x[!is.na(.x)]==0),
+                                        NA_real_,
+                                       .x[!is.na(.x)] %>% orderNorm() %>% predict()),
+                                .names="{.col}_qt")) else .} %>%
+    {if(fn=="log1") mutate(dat,
+                           across(all_of(vars), log1p, .names="{.col}_log1}")) else .} %>%
+    {if(fn=="scale") mutate(dat,
+                           across(all_of(vars),
+                                  ~ifelse(all(.x[!is.na(.x)]==0),
+                                          NA_real_,
+                                          .x[!is.na(.x)] %>% 
+                                            scale(center=TRUE, scale=IQR(.x[!is.na(.x)]))),
+                                  .names="{.col}_scale")) else .}
+}
+
+
+## Function to generate histogram of transactions grouped by store_nbr
+make_grouped_hist <- function(dat, group, var, filt) {
+  var_chr <- deparse(substitute(var))
+  
+  dat %>% 
+    select(date, {{group}}, {{var}}) %>%
+    filter({{group}} %in% as.character(filt)) %>%
+    ggplot() +
+    geom_histogram(aes(x={{var}}, fill={{group}}), color="black") +
+    facet_wrap(vars({{group}}), scales="free") +
+    scale_fill_viridis_d("A") +
+    theme_bw() +
+    theme(legend.position="none")
+}
 
 
