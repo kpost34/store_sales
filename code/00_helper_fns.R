@@ -47,22 +47,22 @@ apply_transform <- function(dat, vars, fn) {
                                 ~ifelse(all(.x[!is.na(.x)]==0),
                                         NA_real_,
                                         .x[!is.na(.x)] %>% yeojohnson() %>% predict()), 
-                                .names="{.col}_yj")) else .} %>%
+                                .names="{.col}__yj")) else .} %>%
     {if(fn=="qt") mutate(dat, 
                          across(all_of(vars),
                                 ~ifelse(all(.x[!is.na(.x)]==0),
                                         NA_real_,
                                        .x[!is.na(.x)] %>% orderNorm() %>% predict()),
-                                .names="{.col}_qt")) else .} %>%
+                                .names="{.col}__qt")) else .} %>%
     {if(fn=="log1") mutate(dat,
-                           across(all_of(vars), log1p, .names="{.col}_log1}")) else .} %>%
+                           across(all_of(vars), log1p, .names="{.col}__log1}")) else .} %>%
     {if(fn=="scale") mutate(dat,
                            across(all_of(vars),
                                   ~ifelse(all(.x[!is.na(.x)]==0),
                                           NA_real_,
                                           .x[!is.na(.x)] %>% 
                                             scale(center=TRUE, scale=IQR(.x[!is.na(.x)]))),
-                                  .names="{.col}_scale")) else .}
+                                  .names="{.col}__scale")) else .}
 }
 
 
@@ -75,6 +75,21 @@ make_grouped_hist <- function(dat, group, var, filt) {
     filter({{group}} %in% as.character(filt)) %>%
     ggplot() +
     geom_histogram(aes(x={{var}}, fill={{group}}), color="black") +
+    facet_wrap(vars({{group}}), scales="free") +
+    scale_fill_viridis_d("A") +
+    theme_bw() +
+    theme(legend.position="none")
+}
+
+
+make_grouped_density <- function(dat, group, var, filt) {
+  var_chr <- deparse(substitute(var))
+  
+  dat %>% 
+    select(date, {{group}}, {{var}}) %>%
+    filter({{group}} %in% as.character(filt)) %>%
+    ggplot() +
+    geom_density(aes(x={{var}}, fill={{group}}), color="black") +
     facet_wrap(vars({{group}}), scales="free") +
     scale_fill_viridis_d("A") +
     theme_bw() +
