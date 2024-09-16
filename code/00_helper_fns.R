@@ -42,34 +42,25 @@ calc_iqr <- function(dat, var, thresh) {
 ## Function to apply data transformations for normality and to reduce outliers
 apply_transform <- function(dat, vars, fn) {
   dat %>%
-    {if(fn=="yj") mutate(dat, 
-                         across(all_of(vars),
-                                ~ifelse(all(.x[!is.na(.x)]==0),
-                                        NA_real_,
-                                        .x[!is.na(.x)] %>% yeojohnson() %>% predict()), 
-                                .names="{.col}__yj")) else .} %>%
+    {if(fn=="yj") mutate(dat, across(all_of(vars), 
+                                     ~yeojohnson(.x) %>% predict(),
+                                     .names="{.col}__yj")) else .} %>%
     {if(fn=="qt") mutate(dat, 
                          across(all_of(vars),
-                                ~ifelse(all(.x[!is.na(.x)]==0),
-                                        NA_real_,
-                                       .x[!is.na(.x)] %>% orderNorm() %>% predict()),
+                                ~orderNorm(.x) %>% predict(),
                                 .names="{.col}__qt")) else .} %>%
     {if(fn=="log1") mutate(dat,
                            across(all_of(vars), log1p, .names="{.col}__log1}")) else .} %>%
     {if(fn=="scale") mutate(dat,
                            across(all_of(vars),
-                                  ~ifelse(all(.x[!is.na(.x)]==0),
-                                          NA_real_,
-                                          .x[!is.na(.x)] %>% 
-                                            scale(center=TRUE, scale=IQR(.x[!is.na(.x)]))),
+                                  ~scale(.x, center=TRUE, scale=IQR(.x, na.rm=TRUE)),
                                   .names="{.col}__scale")) else .}
 }
 
 
+
 ## Function to generate histogram of transactions grouped by store_nbr
 make_grouped_hist <- function(dat, group, var, filt) {
-  var_chr <- deparse(substitute(var))
-  
   dat %>% 
     select(date, {{group}}, {{var}}) %>%
     filter({{group}} %in% as.character(filt)) %>%
@@ -83,8 +74,6 @@ make_grouped_hist <- function(dat, group, var, filt) {
 
 
 make_grouped_density <- function(dat, group, var, filt) {
-  var_chr <- deparse(substitute(var))
-  
   dat %>% 
     select(date, {{group}}, {{var}}) %>%
     filter({{group}} %in% as.character(filt)) %>%
@@ -95,5 +84,41 @@ make_grouped_density <- function(dat, group, var, filt) {
     theme_bw() +
     theme(legend.position="none")
 }
+
+
+## Function to generate histograms of sales or promotions faceted by store_fam
+make_hist <- function(dat, var, transform, val, facet) {
+  dat %>%
+    filter(variable==var,
+           transform_type==transform) %>%
+    ggplot() +
+    geom_histogram(aes(x={{val}}, fill={{facet}}), color='black') +
+    facet_wrap(vars({{facet}}), scales="free") +
+    scale_fill_viridis_d("A") +
+    theme_bw() +
+    theme(legend.position="none")
+}
+
+
+## Function to generate density plot of sales or promotions faceted by store_fam
+make_density <- function(dat, var, transform, val, facet) {
+  dat %>%
+    {if(!is.na(var)) filter(., variable==var) else .} %>%
+    filter(transform_type==transform) %>%
+    ggplot() +
+    geom_density(aes(x={{val}}, color={{facet}})) +
+    facet_wrap(vars({{facet}}), scales="free") +
+    scale_fill_viridis_d("A") +
+    theme_bw() +
+    theme(legend.position="none")
+}
+
+
+
+
+
+
+
+
 
 
