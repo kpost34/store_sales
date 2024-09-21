@@ -87,10 +87,10 @@ make_grouped_density <- function(dat, group, var, filt) {
 
 
 ## Function to generate histograms of sales or promotions faceted by store_fam
-make_hist <- function(dat, var, transform, val, facet) {
+make_hist <- function(dat, var=NA, transform, val, facet) {
   dat %>%
-    filter(variable==var,
-           transform_type==transform) %>%
+    {if(!is.na(var)) filter(., variable==var) else .} %>%
+    filter(transform_type==transform) %>%
     ggplot() +
     geom_histogram(aes(x={{val}}, fill={{facet}}), color='black') +
     facet_wrap(vars({{facet}}), scales="free") +
@@ -101,7 +101,7 @@ make_hist <- function(dat, var, transform, val, facet) {
 
 
 ## Function to generate density plot of sales or promotions faceted by store_fam
-make_density <- function(dat, var, transform, val, facet) {
+make_density <- function(dat, var=NA, transform, val, facet) {
   dat %>%
     {if(!is.na(var)) filter(., variable==var) else .} %>%
     filter(transform_type==transform) %>%
