@@ -62,6 +62,8 @@ df_train_feat <- df_train %>%
 
 
 ## Transformations------------------------------------------
+vec_transforms <- c("untransformed", "log1", "yj", "scale", "qt")
+
 ### Oil---------------------
 #### Prepare data
 df_oil <- df_train_feat %>%
@@ -70,17 +72,22 @@ df_oil <- df_train_feat %>%
   filter(!is.na(dcoilwtico_mavg))
 
 
-#### Perform transformation
+#### Perform transformation and pivot
 df_oil_trans <- df_oil %>%
   mutate(oil_yj=yeojohnson(dcoilwtico_mavg) %>% predict(), #yeo-johnson
          oil_qt=orderNorm(dcoilwtico_mavg) %>% predict(), #quantile transform
-         oil_log=log1p(dcoilwtico_mavg), #log + 1
-         oil_scale=scale(dcoilwtico_mavg, center=TRUE, scale=IQR(dcoilwtico_mavg))) #robust scaling
+         oil_log1=log1p(dcoilwtico_mavg), #log + 1
+         oil_scale=scale(dcoilwtico_mavg, center=TRUE, scale=IQR(dcoilwtico_mavg))) %>% #robust scaling
+  pivot_longer(!date, names_to="type", values_to="cost") %>% 
+  mutate(type=ifelse(!str_detect(type, "^oil"),
+                     "untransformed",
+                     str_remove(type, "^oil_")),
+         type=factor(type, levels=vec_transforms))
 
 
 #### Assess transformation
+##### Histograms
 df_oil_trans %>%
-  pivot_longer(!date, names_to="type", values_to="cost") %>%
   ggplot() +
   geom_histogram(aes(x=cost, fill=type), color="black") +
   facet_wrap(~type, scales="free") +
@@ -91,6 +98,25 @@ df_oil_trans %>%
   #Gaussian one
 
 
+##### Q-q plots
+df_oil_trans %>%
+  ggplot() +
+  geom_qq(aes(sample=cost, color=type)) +
+  geom_qq_line(aes(sample=cost), color='black') +
+  facet_wrap(~type, scales="free") +
+  scale_color_viridis_d() +
+  theme_bw() +
+  theme(legend.position="none")
+#no question that qt fits data best
+  
+
+##### Shapiro tests
+df_oil_trans %>%
+  group_by(type) %>%
+  shapiro_test(cost)
+#again, qt fits data best
+
+
 
 ### Transactions---------------------
 #### Prepare data
@@ -99,8 +125,7 @@ df_transactions <- df_train_feat %>%
   distinct()
 
 
-
-#### Perform transformations
+#### Perform transformations and pivot
 df_transactions_trans <- df_transactions %>%
   filter(!is.na(transactions)) %>% #NAs produced from joining
   group_by(store_nbr) %>%
@@ -108,19 +133,26 @@ df_transactions_trans <- df_transactions %>%
          transactions_qt=orderNorm(transactions) %>% predict(), #quantile transformation
          transactions_log1=log1p(transactions), #log + 1
          transactions_scale=scale(transactions, center=TRUE, scale=IQR(transactions))) %>% #robust scaling
-  ungroup()
+  ungroup() %>%
+  rename_with(.cols=!c(date, store_nbr),
+              .fn=~ifelse(.x=="transactions",
+                          "untransformed",
+                          str_remove(.x, "^transactions_"))) 
+
+df_transactions_trans_long <- df_transactions_trans %>%
+  pivot_longer(!c(date, store_nbr), names_to="type", values_to="transactions") %>%
+  mutate(type=factor(type, levels=vec_transforms))
 
 
 #### Assess transformation
 ##### Overall
-df_transactions_trans %>%
-  pivot_longer(!c(date, store_nbr), names_to="type", values_to="transactions") %>%
+df_transactions_trans_long %>% 
   ggplot() +
   geom_histogram(aes(x=transactions, fill=type), color="black") +
   facet_wrap(~type, scales="free") +
   scale_fill_viridis_d("A") +
   theme_bw() +
-  theme(legend.position="bottom")
+  theme(legend.position="none")
 #unsurprisingly, qt has the best distribution but it may be 'over'-transforming it. log x + 1
   #appears to be close to normal and same with the y-j transform
 
@@ -130,41 +162,66 @@ df_transactions_trans %>%
 set.seed(100)
 samp_transaction <- sample.int(54, 9)
 
-vec_tactions_transform <- c("transactions", "transactions_yj", "transactions_log1", "transactions_qt") %>%
-  set_names(str_replace(., "transactions", "untransformed") %>% str_remove(., "untransformed_"))
-
 
 ###### Histograms
-list_transactions_hist <- vec_tactions_transform %>%
+list_transactions_hist <- vec_transforms %>%
   purrr::map(function(x) {
     make_grouped_hist(dat=df_transactions_trans,
                       group=store_nbr,
                       var=!!sym(x),
                       filt=samp_transaction)
   }) %>%
-  set_names(names(vec_tactions_transform))
+  set_names(vec_transforms)
 
 list_transactions_hist$untransformed
 list_transactions_hist$yj
 list_transactions_hist$log1
 list_transactions_hist$qt
+list_transactions_hist$scale
+#qt 'looks' the best but concerns over over-transformation
 
 
 ###### Density plots
-list_transactions_dens <- vec_tactions_transform %>%
+list_transactions_dens <- vec_transforms %>%
   purrr::map(function(x) {
     make_grouped_density(dat=df_transactions_trans,
                         group=store_nbr,
                         var=!!sym(x),
                         filt=samp_transaction)
   }) %>%
-  set_names(names(vec_tactions_transform))
+  set_names(vec_transforms)
 
 list_transactions_dens$untransformed
 list_transactions_dens$yj
-list_transactions_hist$log1
+list_transactions_dens$log1
 list_transactions_dens$qt
+list_transactions_dens$scale
 #qt-transformed has the best distributions--others retain long tails and bimodal distributions
+
+
+##### Q-q plots
+list_transactions_qq <- vec_transforms %>%
+  purrr::map()
+
+
+df_transactions_trans_long %>%
+  filter(store_nbr %in% samp_transaction,
+         type=="untransformed") %>%
+  ggplot() +
+  geom_qq(aes(sample=transactions, color=store_nbr)) +
+  geom_qq_line(aes(sample=transactions), color='black') +
+  facet_wrap(~store_nbr, scales="free") +
+  scale_color_viridis_d() +
+  theme_bw() +
+  theme(legend.position="none")
+#no question that qt fits data best
+  
+
+##### Shapiro tests
+df_oil_trans %>%
+  group_by(type) %>%
+  shapiro_test(cost)
+#again, qt fits data best
 
 
 
@@ -335,8 +392,23 @@ df_promo_trans_long <- df_promo_trans %>%
                values_to="value")
 
 
+### Check data
+df_promo_trans_long %>% 
+  filter(transform_type=="untransformed") %>%
+  mutate(value_0=value==0) %>%
+  group_by(store_fam) %>%
+  reframe(n=n(),
+          n_0=sum(value_0),
+          pct_0=(n_0/n)*100,
+          min=min(value),
+          mean=mean(value),
+          median=median(value),
+          max=max(value))
+#data have such a high proportion of 0s that a transformation won't help much
+
+
 ### Assess transformation
-list_promo_dens <- vec_transform %>%
+list_promo_hist <- vec_transform %>%
   purrr::map(function(x) {
     make_hist(dat=df_promo_trans_long,
               transform=x,
@@ -345,29 +417,26 @@ list_promo_dens <- vec_transform %>%
   }) %>%
   set_names(vec_transform)
 
-list_promo_dens$untransformed
-list_promo_dens$scale
-list_promo_dens$yj
-list_promo_dens$`log1`
-list_promo_dens$qt
+list_promo_hist$untransformed #high freq of 0s
+list_promo_hist$scale #error
+list_promo_hist$yj #resembles untransformed closely
+list_promo_hist$`log1` #error
+list_promo_hist$qt #resembles untransformed closely
+#given that there's no discernible benefit to the distribution following transformation, leave
+  #untransformed
 
-df_promo_trans %>% map(summary)
 
 
+
+#STOPPING POINT: figuring out why I can't get density plots for some transforms to display--
+  #rec'd doing an 'is.finite(x)' filter upstream when creating the dfs
 
 #transformations selected
   #oil: qt
   #transactions: qt
   #sales and sales-related:
+  #onpromotion: untransformed
 
-  
-
-
-
-
-
-
-#shapiro-test
   
 
   
