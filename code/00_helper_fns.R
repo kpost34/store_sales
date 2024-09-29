@@ -50,7 +50,7 @@ apply_transform <- function(dat, vars, fn) {
                                 ~orderNorm(.x) %>% predict(),
                                 .names="{.col}__qt")) else .} %>%
     {if(fn=="log1") mutate(dat,
-                           across(all_of(vars), log1p, .names="{.col}__log1}")) else .} %>%
+                           across(all_of(vars), log1p, .names="{.col}__log1")) else .} %>%
     {if(fn=="scale") mutate(dat,
                            across(all_of(vars),
                                   ~scale(.x, center=TRUE, scale=IQR(.x, na.rm=TRUE)),
@@ -73,6 +73,7 @@ make_grouped_hist <- function(dat, group, var, filt) {
 }
 
 
+## Function to generate density plot of transactions grouped by store_nbr
 make_grouped_density <- function(dat, group, var, filt) {
   dat %>% 
     select(date, {{group}}, {{var}}) %>%
@@ -81,6 +82,20 @@ make_grouped_density <- function(dat, group, var, filt) {
     geom_density(aes(x={{var}}, fill={{group}}), color="black") +
     facet_wrap(vars({{group}}), scales="free") +
     scale_fill_viridis_d("A") +
+    theme_bw() +
+    theme(legend.position="none")
+}
+
+
+## Function to generate qqplot of transactions grouped by store_nbr
+make_grouped_qqplot <- function(dat, group, var, filt) {
+  dat %>%
+    filter({{group}} %in% as.character(filt)) %>%
+    ggplot() +
+    geom_qq(aes(sample={{var}}, color={{group}})) +
+    geom_qq_line(aes(sample={{var}}), color='black') +
+    facet_wrap(~store_nbr, scales="free") +
+    scale_color_viridis_d() +
     theme_bw() +
     theme(legend.position="none")
 }
@@ -112,6 +127,30 @@ make_density <- function(dat, var=NA, transform, val, facet) {
     theme_bw() +
     theme(legend.position="none")
 }
+
+## Function to generate qqplots of sales or promotions faceted by store_fam
+make_qqplot <- function(dat, var=NA, transform, val, facet) {
+  dat %>%
+    {if(!is.na(var)) filter(., variable==var) else .} %>%
+    filter(transform_type==transform) %>%
+    ggplot() +
+    geom_qq(aes(sample={{val}}, color={{facet}})) +
+    geom_qq_line(aes(sample={{val}}), color='black') +
+    facet_wrap(vars({{facet}}), scales="free") +
+    scale_fill_viridis_d("A") +
+    theme_bw() +
+    theme(legend.position="none")
+}
+
+
+## Function to apply min-max scaling
+min_max_scale <- function(var) {
+  var_mmscale <- (var - min(var, na.rm=TRUE)/(max(var, na.rm=TRUE) - min(var, na.rm=TRUE))
+  
+  return(var_mmscale)
+}
+
+
 
 
 
