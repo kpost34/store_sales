@@ -46,7 +46,7 @@ df_train_feat <- df_train %>%
 
 
 
-# Handle Non-Normality and Outliers=================================================================
+# Handle Non-Normality and Outliers via Transformations=============================================
 #From previous script...
   #outliers are minimal except for grouping by store and family yields onpromotion: 9.26% and
     #sales: 5.11%
@@ -61,18 +61,18 @@ df_train_feat <- df_train %>%
 
 
 
-## Transformations------------------------------------------
+#create vector of transformations
 vec_transforms <- c("untransformed", "log1", "yj", "scale", "qt")
 
-### Oil---------------------
-#### Prepare data
+## Oil---------------------
+### Prepare data
 df_oil <- df_train_feat %>%
   select(date, dcoilwtico_mavg) %>%
   distinct() %>%
   filter(!is.na(dcoilwtico_mavg))
 
 
-#### Perform transformation and pivot
+### Perform transformation and pivot
 df_oil_trans <- df_oil %>%
   mutate(oil_yj=yeojohnson(dcoilwtico_mavg) %>% predict(), #yeo-johnson
          oil_qt=orderNorm(dcoilwtico_mavg) %>% predict(), #quantile transform
@@ -85,8 +85,8 @@ df_oil_trans <- df_oil %>%
          type=factor(type, levels=vec_transforms))
 
 
-#### Assess transformation
-##### Histograms
+### Assess transformation
+#### Histograms
 df_oil_trans %>%
   ggplot() +
   geom_histogram(aes(x=cost, fill=type), color="black") +
@@ -98,7 +98,7 @@ df_oil_trans %>%
   #Gaussian one
 
 
-##### Q-q plots
+#### Q-q plots
 df_oil_trans %>%
   ggplot() +
   geom_qq(aes(sample=cost, color=type)) +
@@ -110,7 +110,7 @@ df_oil_trans %>%
 #no question that qt fits data best
   
 
-##### Shapiro tests
+#### Shapiro tests
 df_oil_trans %>%
   group_by(type) %>%
   shapiro_test(cost)
@@ -118,14 +118,14 @@ df_oil_trans %>%
 
 
 
-### Transactions---------------------
-#### Prepare data
+## Transactions---------------------
+### Prepare data
 df_transactions <- df_train_feat %>%
   select(date, store_nbr, transactions) %>%
   distinct()
 
 
-#### Perform transformations and pivot
+### Perform transformations and pivot
 df_transactions_trans <- df_transactions %>%
   filter(!is.na(transactions)) %>% #NAs produced from joining
   group_by(store_nbr) %>%
@@ -144,8 +144,8 @@ df_transactions_trans_long <- df_transactions_trans %>%
   mutate(type=factor(type, levels=vec_transforms))
 
 
-#### Assess transformation
-##### Overall
+### Assess transformation
+#### Overall-Histograms
 df_transactions_trans_long %>% 
   ggplot() +
   geom_histogram(aes(x=transactions, fill=type), color="black") +
@@ -157,13 +157,13 @@ df_transactions_trans_long %>%
   #appears to be close to normal and same with the y-j transform
 
 
-##### By store_nbr
+#### By store_nbr
 #get sample
 set.seed(100)
 samp_transaction <- sample.int(54, 9)
 
 
-###### Histograms
+##### Histograms
 list_transactions_hist <- vec_transforms %>%
   purrr::map(function(x) {
     make_grouped_hist(dat=df_transactions_trans,
@@ -181,7 +181,7 @@ list_transactions_hist$scale
 #qt 'looks' the best but concerns over over-transformation
 
 
-###### Density plots
+##### Density plots
 list_transactions_dens <- vec_transforms %>%
   purrr::map(function(x) {
     make_grouped_density(dat=df_transactions_trans,
@@ -199,29 +199,34 @@ list_transactions_dens$scale
 #qt-transformed has the best distributions--others retain long tails and bimodal distributions
 
 
-##### Q-q plots
+#### Q-q plots
 list_transactions_qq <- vec_transforms %>%
-  purrr::map()
+  purrr::map(function(x) {
+    make_grouped_qqplot(dat=df_transactions_trans,
+                        group=store_nbr,
+                        var=!!sym(x),
+                        filt=samp_transaction)
+  }) %>%
+  set_names(vec_transforms)
+
+list_transactions_qq$untransformed
+list_transactions_qq$yj
+list_transactions_qq$log1
+list_transactions_qq$qt
+list_transactions_qq$scale
+#qt is best but concerns over over-transformation; next best is yj and rest are not good
 
 
+#### Shapiro tests
 df_transactions_trans_long %>%
-  filter(store_nbr %in% samp_transaction,
-         type=="untransformed") %>%
-  ggplot() +
-  geom_qq(aes(sample=transactions, color=store_nbr)) +
-  geom_qq_line(aes(sample=transactions), color='black') +
-  facet_wrap(~store_nbr, scales="free") +
-  scale_color_viridis_d() +
-  theme_bw() +
-  theme(legend.position="none")
-#no question that qt fits data best
-  
-
-##### Shapiro tests
-df_oil_trans %>%
+  group_by(type, store_nbr) %>%
+  shapiro_test(transactions) %>% 
+  mutate(sig=p>0.05) %>%
   group_by(type) %>%
-  shapiro_test(cost)
-#again, qt fits data best
+  reframe(n_sig=sum(sig),
+          n=n(),
+          pct_sig=(n_sig/n)*100)
+#qt is best here
 
 
 
@@ -232,7 +237,7 @@ df_sales <- df_train_feat %>%
   distinct()
   
 
-### Perform transformations
+### Perform transformations and pivot
 sales_vars <- c("sales", "sales_lag1", "sales_lag7", "sales_mean7", "sales_mean30")
 
 vec_family <- df_sales %>%
@@ -251,7 +256,8 @@ df_sales_trans <- df_sales %>%
          family %in% samp_family) %>%
   #combine store number and family into var
   mutate(store_fam=paste0(family, " (", store_nbr, ")"), .after="family") %>%
-  group_by(store_nbr) %>%
+  group_by(store_fam) %>%
+  # group_by(store_nbr) %>%
   #transform variables
   apply_transform(vars=sales_vars, fn="yj") %>% #yeo-johnson (right-skewed)
   apply_transform(vars=sales_vars, fn="qt") %>% #quantile transform (bimodal/to normalize)
@@ -261,8 +267,6 @@ df_sales_trans <- df_sales %>%
   rename_with(.cols=c(sales, sales_lag1, sales_lag7, sales_mean7, sales_mean30),
               .fn=~paste0(.x, "__untransformed"))
 
-  
-### Pivot to long form
 df_sales_trans_long <- df_sales_trans %>%
   pivot_longer(cols=!c(date, store_nbr, family, store_fam),
                names_to=c("variable", ".value"),
@@ -273,11 +277,8 @@ df_sales_trans_long <- df_sales_trans %>%
 
 
 ### Assess transformation
-#### Sales
-vec_transform <- c("untransformed", "scale", "yj", "log1}", "qt")
-
 #### Histograms
-list_sales_hist <- vec_transform %>%
+list_sales_hist <- vec_transforms %>%
   purrr::map(function(x) {
     make_hist(dat=df_sales_trans_long,
               var="sales",
@@ -285,17 +286,18 @@ list_sales_hist <- vec_transform %>%
               val=value,
               facet=store_fam)
   }) %>%
-  set_names(vec_transform)
+  set_names(vec_transforms)
 
 list_sales_hist$untransformed
 list_sales_hist$scale
 list_sales_hist$yj
-list_sales_hist$`log1`
+list_sales_hist$log1
 list_sales_hist$qt
 
 
-#### Density
-list_sales_dens <- vec_transform %>%
+#### Density plots
+#sales
+list_sales_dens <- vec_transforms %>%
   purrr::map(function(x) {
     make_density(dat=df_sales_trans_long,
                  var="sales",
@@ -303,17 +305,17 @@ list_sales_dens <- vec_transform %>%
                  val=value,
                  facet=store_fam)
   }) %>%
-  set_names(vec_transform)
+  set_names(vec_transforms)
 
 list_sales_dens$untransformed
 list_sales_dens$scale
 list_sales_dens$yj
-list_sales_dens$`log1`
+list_sales_dens$log1
 list_sales_dens$qt
 
 
-#### sales_lag7
-list_sales_lag7_dens <- vec_transform %>%
+#sales_lag7
+list_sales_lag7_dens <- vec_transforms %>%
   purrr::map(function(x) {
     make_density(dat=df_sales_trans_long,
                 var="sales_lag7",
@@ -321,17 +323,17 @@ list_sales_lag7_dens <- vec_transform %>%
                 val=value,
                 facet=store_fam)
   }) %>%
-  set_names(vec_transform)
+  set_names(vec_transforms)
 
 list_sales_lag7_dens$untransformed
 list_sales_lag7_dens$scale
 list_sales_lag7_dens$yj
-list_sales_lag7_dens$`log1`
+list_sales_lag7_dens$log1
 list_sales_lag7_dens$qt
 
 
-#### sales_mean30
-list_sales_mean30_dens <- vec_transform %>%
+#sales_mean30
+list_sales_mean30_dens <- vec_transforms %>%
   purrr::map(function(x) {
     make_density(dat=df_sales_trans_long,
                 var="sales_mean30",
@@ -339,14 +341,46 @@ list_sales_mean30_dens <- vec_transform %>%
                 val=value,
                 facet=store_fam)
   }) %>%
-  set_names(vec_transform)
+  set_names(vec_transforms)
 
 list_sales_mean30_dens$untransformed
 list_sales_mean30_dens$scale
 list_sales_mean30_dens$yj
-list_sales_mean30_dens$`log1`
+list_sales_mean30_dens$log1
 list_sales_mean30_dens$qt
 
+
+#### QQ plots
+list_sales_qq <- vec_transforms %>%
+  purrr::map(function(x) {
+    make_qqplot(dat=df_sales_trans_long,
+                var="sales",
+                transform=x,
+                val=value,
+                facet=store_fam)
+  }) %>%
+  set_names(vec_transforms)
+
+list_sales_qq$untransformed
+list_sales_qq$scale
+list_sales_qq$yj
+list_sales_qq$log1
+list_sales_qq$qt
+
+
+### Shapiro tests
+df_sales_trans_long %>%
+  filter(variable=="sales") %>%
+  group_by(transform_type, store_fam) %>% 
+  shapiro_test(value) %>% 
+  mutate(ns=p>0.05) %>%
+  group_by(transform_type) %>%
+  reframe(n_ns=sum(ns),
+          n=n(),
+          pct_ns=(n_ns/n)*100)
+#0 for all
+  
+#go with log1 for all sales-related vars
 
 
 ## Promotions---------------------
@@ -356,7 +390,7 @@ df_promo <- df_train_feat %>%
   distinct()
 
 
-### Perform transformations
+### Perform transformations and pivot
 vec_family <- df_promo %>%
   pull(family) %>%
   unique() %>%
@@ -373,7 +407,7 @@ df_promo_trans <- df_promo %>%
          family %in% samp_fam) %>%
   #combine store number and family into var
   mutate(store_fam=paste0(family, " (", store_nbr, ")"), .after="family") %>%
-  group_by(store_nbr) %>%
+  group_by(store_fam) %>%
   #transform variables
   apply_transform(vars="onpromotion", fn="yj") %>% #yeo-johnson (right-skewed)
   apply_transform(vars="onpromotion", fn="qt") %>% #quantile transform (bimodal/to normalize)
@@ -383,10 +417,9 @@ df_promo_trans <- df_promo %>%
   rename(onpromotion__untransformed="onpromotion")
 
 
-### Pivot to long form
 df_promo_trans_long <- df_promo_trans %>%
   rename_with(.cols=!c(date, store_nbr, family, store_fam),
-              .fn=~str_remove_all(.x, "^onpromotion__|\\}")) %>%
+              .fn=~str_remove_all(.x, "^onpromotion__")) %>%
   pivot_longer(cols=!c(date, store_nbr, family, store_fam),
                names_to="transform_type",
                values_to="value")
@@ -408,38 +441,106 @@ df_promo_trans_long %>%
 
 
 ### Assess transformation
-list_promo_hist <- vec_transform %>%
+#### Histograms
+list_promo_hist <- vec_transforms %>%
   purrr::map(function(x) {
     make_hist(dat=df_promo_trans_long,
               transform=x,
               val=value,
               facet=store_fam)
   }) %>%
-  set_names(vec_transform)
+  set_names(vec_transforms)
 
 list_promo_hist$untransformed #high freq of 0s
-list_promo_hist$scale #error
+list_promo_hist$scale #mostly blank plots
 list_promo_hist$yj #resembles untransformed closely
-list_promo_hist$`log1` #error
-list_promo_hist$qt #resembles untransformed closely
+list_promo_hist$log1 #resembles untransformed
+list_promo_hist$qt #resembles untransformed 
 #given that there's no discernible benefit to the distribution following transformation, leave
   #untransformed
 
 
+#### Density plots
+list_promo_dens <- vec_transforms %>%
+  purrr::map(function(x) {
+    make_density(dat=df_promo_trans_long,
+                 transform=x,
+                 val=value,
+                 facet=store_fam)
+  }) %>%
+  set_names(vec_transforms)
 
+list_promo_dens$untransformed
+list_promo_dens$scale #error
+list_promo_dens$yj
+list_promo_dens$log1
+list_promo_dens$qt
+#no real benefit to transformation
 
-#STOPPING POINT: figuring out why I can't get density plots for some transforms to display--
-  #rec'd doing an 'is.finite(x)' filter upstream when creating the dfs
 
 #transformations selected
   #oil: qt
   #transactions: qt
-  #sales and sales-related:
+  #sales and sales-related: log1
   #onpromotion: untransformed
 
+
+## Transform data---------------------
+### Oil
+#qt-transform and mm-scale oil
+df_oil_trans_scale_final <- df_oil %>%
+  #apply qt transform
+  mutate(oil_qt=orderNorm(dcoilwtico_mavg) %>% predict(),
+         #apply mm scaling
+         oil_qt_mmscale=min_max_scale(oil_qt)) %>%
+  select(-c(dcoilwtico_mavg, oil_qt))
+
+
+### Transactions
+#qt-transform and mm-scale transactions grouped by store_nbr
+df_transactions_trans_scale_final <- df_transactions %>%
+  filter(!is.na(transactions)) %>%
+  group_by(store_nbr) %>%
+  #apply qt transform
+  mutate(transactions_qt=orderNorm(transactions) %>% predict(),
+         #apply mm scaling
+         transactions_qt_mmscale=min_max_scale(transactions_qt)) %>%
+  ungroup() %>%
+  select(-c(transactions, transactions_qt))
+
+
+### Sales and sales-related variables
+#log1-transform and mm-scale all sales-related vars grouped by store-family
+df_sales_trans_scale_final <- df_sales %>%
+  mutate(store_fam=paste0(family, " (", store_nbr, ")"), .after="family") %>%
+  group_by(store_fam) %>%
+  apply_transform(vars=sales_vars, fn="log1") %>% 
+  rename_with(.cols=everything(), .fn=~str_replace(.x, "__", "_")) %>%
+  
+  mutate(across(ends_with("log1"), min_max_scale, .names="{.col}_mmscale")) %>%
+  ungroup() %>%
+  select(date, store_nbr, family, store_fam, ends_with("_mmscale"))
+  
   
 
+### Onpromotion
+#mm-scale untransformed onpromotion
+df_promo_trans_scale_final <- df_promo %>%
+  mutate(onpromotion_mmscale=min_max_scale(onpromotion)) %>%
+  select(-onpromotion)
+
+
+## Combine
   
+  
+#TO DO:
+  #2) apply min-max scaling--doesn't seem to working on sales-related vars
+
+
+# Apply Min-Max Scaling=============================================================================
+
+  
+
 # Encoding Categorical Variables====================================================================
   
   
